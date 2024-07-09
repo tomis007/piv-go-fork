@@ -664,6 +664,47 @@ func ykChangePUK(tx *scTx, oldPUK, newPUK string) error {
 	return err
 }
 
+// SetRetries sets the allowed retry count for the PIN and the PUK.
+//
+// Yubikeys allows one byte for storing each, allowed values are 1-255. In instances of greater
+// than 15 retries remaining, the remaining count will show 15 as Yubikeys only have 4 bits in
+// the response for remaining retries.
+//
+// IMPORTANT NOTE: Changing the retries on Yubikeys RESETS THE PIN AND PUK TO THEIR DEFAULTS!
+// If you use SetRetries, it is *highly* recommended that you follow it with SetPIN and SetPUK.
+// https://docs.yubico.com/yesdk/users-manual/application-piv/commands.html#set-pin-retries
+//
+//	if err := yk.SetRetries(piv.DefaultManagementKey, piv.DefaultPIN, 5, 4); err != nil {
+//		// ...
+//	}
+func (yk *YubiKey) SetRetries(managementKey []byte, pin string, pinRetries int, pukRetries int) error {
+	return ykSetRetries(yk.tx, managementKey, pin, pinRetries, pukRetries, yk.rand, yk.version)
+}
+
+func ykSetRetries(tx *scTx, managementKey []byte, pin string, pinRetries int, pukRetries int, rand io.Reader, version *version) error {
+	if pinRetries < 1 || pukRetries < 1 || pinRetries > 255 || pukRetries > 255 {
+		return fmt.Errorf("pinRetries and pukRetries must both be in range 1 - 255")
+	}
+
+	// NOTE: this action requires the management key AND PIN to be authenticated on
+	// the same transaction. It doesn't work otherwise.
+	if err := ykAuthenticate(tx, managementKey, rand, version); err != nil {
+		return fmt.Errorf("authenticating with management key: %w", err)
+	}
+	if err := ykLogin(tx, pin); err != nil {
+		return fmt.Errorf("authenticating with pin: %w", err)
+	}
+	cmd := apdu{
+		instruction: insSetPINRetries,
+		param1:      byte(pinRetries),
+		param2:      byte(pukRetries),
+	}
+	if _, err := tx.Transmit(cmd); err != nil {
+		return fmt.Errorf("command failed: %w", err)
+	}
+	return nil
+}
+
 func ykSelectApplication(tx *scTx, id []byte) error {
 	cmd := apdu{
 		instruction: insSelectApplication,

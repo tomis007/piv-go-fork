@@ -110,7 +110,13 @@ if _, err := io.ReadFull(rand.Reader, newKey); err != nil {
 newPIN := fmt.Sprintf("%06d", newPINInt)
 newPUK := fmt.Sprintf("%08d", newPUKInt)
 
-// Set all values to a new value.
+// If you want to change PIN/PUK retries, it's recommended to do it BEFORE changing
+// the PIN/PUK, as SetRetries will reset PIN/PUK to their default values.
+if err := yk.SetRetries(piv.DefaultManagementKey, piv.DefaultPIN, 5, 4); err != nil {
+	// ...
+}
+
+// Set all values to a new value. 
 if err := yk.SetManagementKey(piv.DefaultManagementKey, newKey); err != nil {
 	// ...
 }
