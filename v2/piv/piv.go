@@ -66,11 +66,14 @@ const (
 	algAES256  = 0x0c
 	algRSA1024 = 0x06
 	algRSA2048 = 0x07
+	algRSA3072 = 0x05
+	algRSA4096 = 0x16
 	algECCP256 = 0x11
 	algECCP384 = 0x14
-	// non-standard; as implemented by SoloKeys. Chosen for low probability of eventual
-	// clashes, if and when PIV standard adds Ed25519 support
-	algEd25519 = 0x22
+	// non-standard; implemented by YubiKey 5.7.x. Previous versions supported
+	// Ed25519 on SoloKeys with the value 0x22
+	algEd25519 = 0xE0
+	algX25519  = 0xE1
 
 	// https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-78-4.pdf#page=16
 	keyAuthentication     = 0x9a
@@ -910,10 +913,10 @@ func ykSetProtectedMetadata(tx *scTx, key []byte, m *Metadata, rand io.Reader, v
 		0xc1,
 		0x09,
 	}, marshalASN1(0x53, data)...)
-	// NOTE: for some reason this action requires the management key authenticated	
-	// on the same transaction. It doesn't work otherwise.	
-	if err := ykAuthenticate(tx, key, rand, version); err != nil {	
-		return fmt.Errorf("authenticating with key: %w", err)	
+	// NOTE: for some reason this action requires the management key authenticated
+	// on the same transaction. It doesn't work otherwise.
+	if err := ykAuthenticate(tx, key, rand, version); err != nil {
+		return fmt.Errorf("authenticating with key: %w", err)
 	}
 	cmd := apdu{
 		instruction: insPutData,

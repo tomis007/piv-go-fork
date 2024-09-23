@@ -30,6 +30,12 @@ import (
 // destroying data on YubiKeys connected to the system.
 var canModifyYubiKey bool
 
+var (
+	version43 = version{4, 3, 0} // EC384 and Attestation
+	version53 = version{5, 3, 0} // PINPolicy and KeyInfo
+	version57 = version{5, 7, 0} // RSA3072, RSA4096, Ed25519, and X25519
+)
+
 func init() {
 	flag.BoolVar(&canModifyYubiKey, "wipe-yubikey", false,
 		"Flag required to run tests that access the yubikey")
@@ -49,9 +55,9 @@ func testGetVersion(t *testing.T, h *scHandle) {
 	}
 }
 
-func testRequiresVersion(t *testing.T, yk *YubiKey, major, minor, patch byte) {
-	if !supportsVersion(yk.version, major, minor, patch) {
-		t.Skipf("test requires yubikey version %d.%d.%d: got %d.%d.%d", major, minor, patch, yk.version.major, yk.version.minor, yk.version.patch)
+func testRequiresVersion(t *testing.T, yk *YubiKey, v version) {
+	if !supportsVersion(yk.version, v.major, v.minor, v.patch) {
+		t.Skipf("test requires yubikey version %d.%d.%d: got %d.%d.%d", v.major, v.minor, v.patch, yk.version.major, yk.version.minor, yk.version.patch)
 	}
 }
 
@@ -145,7 +151,7 @@ func TestYubiKeyLoginNeeded(t *testing.T) {
 	yk, close := newTestYubiKey(t)
 	defer close()
 
-	testRequiresVersion(t, yk, 4, 3, 0)
+	testRequiresVersion(t, yk, version43)
 
 	if !ykLoginNeeded(yk.tx) {
 		t.Errorf("expected login needed")
@@ -159,8 +165,21 @@ func TestYubiKeyLoginNeeded(t *testing.T) {
 }
 
 func TestYubiKeyPINRetries(t *testing.T) {
+	// The call to Retries may fail after performing the login in
+	// TestYubiKeyLoginNeeded. It appears that the YubiKey doesn’t close the
+	// connection immediately, leading to test failures. To prevent this, we
+	// will reset the YubiKey before running the test.
+	func() {
+		yk, close := newTestYubiKey(t)
+		defer close()
+		if err := yk.Reset(); err != nil {
+			t.Fatalf("resetting key: %v", err)
+		}
+	}()
+
 	yk, close := newTestYubiKey(t)
 	defer close()
+
 	retries, err := yk.Retries()
 	if err != nil {
 		t.Fatalf("getting retries: %v", err)

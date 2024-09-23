@@ -449,6 +449,9 @@ const (
 	AlgorithmEd25519
 	AlgorithmRSA1024
 	AlgorithmRSA2048
+	AlgorithmRSA3072
+	AlgorithmRSA4096
+	AlgorithmX25519
 )
 
 // PINPolicy represents PIN requirements when signing or decrypting with an
@@ -532,6 +535,9 @@ var algorithmsMap = map[Algorithm]byte{
 	AlgorithmEd25519: algEd25519,
 	AlgorithmRSA1024: algRSA1024,
 	AlgorithmRSA2048: algRSA2048,
+	AlgorithmRSA3072: algRSA3072,
+	AlgorithmRSA4096: algRSA4096,
+	AlgorithmX25519:  algX25519,
 }
 
 var algorithmsMapInv = map[byte]Algorithm{
@@ -540,6 +546,9 @@ var algorithmsMapInv = map[byte]Algorithm{
 	algEd25519: AlgorithmEd25519,
 	algRSA1024: AlgorithmRSA1024,
 	algRSA2048: AlgorithmRSA2048,
+	algRSA3072: AlgorithmRSA3072,
+	algRSA4096: AlgorithmRSA4096,
+	algX25519:  AlgorithmX25519,
 }
 
 // AttestationCertificate returns the YubiKey's attestation certificate, which
@@ -847,7 +856,7 @@ func ykGenerateKey(tx *scTx, slot Slot, o Key) (crypto.PublicKey, error) {
 func decodePublic(b []byte, alg Algorithm) (crypto.PublicKey, error) {
 	var curve elliptic.Curve
 	switch alg {
-	case AlgorithmRSA1024, AlgorithmRSA2048:
+	case AlgorithmRSA1024, AlgorithmRSA2048, AlgorithmRSA3072, AlgorithmRSA4096:
 		pub, err := decodeRSAPublic(b)
 		if err != nil {
 			return nil, fmt.Errorf("decoding rsa public key: %v", err)
@@ -861,6 +870,12 @@ func decodePublic(b []byte, alg Algorithm) (crypto.PublicKey, error) {
 		pub, err := decodeEd25519Public(b)
 		if err != nil {
 			return nil, fmt.Errorf("decoding ed25519 public key: %v", err)
+		}
+		return pub, nil
+	case AlgorithmX25519:
+		pub, err := decodeX25519Public(b)
+		if err != nil {
+			return nil, fmt.Errorf("decoding X25519 public key: %v", err)
 		}
 		return pub, nil
 	default:
@@ -992,7 +1007,7 @@ func (yk *YubiKey) PrivateKey(slot Slot, public crypto.PublicKey, auth KeyAuth) 
 	case *rsa.PublicKey:
 		return &keyRSA{yk, slot, pub, auth, pp}, nil
 	default:
-		return nil, fmt.Errorf("unsupported public key type: %T", public)
+		return yk.privateKey(slot, public, auth, pp)
 	}
 }
 
@@ -1025,6 +1040,12 @@ func (yk *YubiKey) SetPrivateKeyInsecure(key []byte, slot Slot, private crypto.P
 		case 2048:
 			policy.Algorithm = AlgorithmRSA2048
 			elemLen = 128
+		case 3072:
+			policy.Algorithm = AlgorithmRSA3072
+			elemLen = 192
+		case 4096:
+			policy.Algorithm = AlgorithmRSA4096
+			elemLen = 256
 		default:
 			return errUnsupportedKeySize
 		}
@@ -1057,8 +1078,21 @@ func (yk *YubiKey) SetPrivateKeyInsecure(key []byte, slot Slot, private crypto.P
 		copy(privateKey[padding:], valueBytes)
 
 		params = append(params, privateKey)
+	case ed25519.PrivateKey:
+		paramTag = 0x07
+		elemLen = ed25519.SeedSize
+
+		// seed
+		privateKey := make([]byte, elemLen)
+		copy(privateKey, priv[:32])
+		params = append(params, privateKey)
 	default:
-		return errors.New("unsupported private key type")
+		// Add support for ecdh.PrivateKey using build tags
+		var err error
+		params, paramTag, elemLen, err = yk.setPrivateKeyInsecure(private)
+		if err != nil {
+			return err
+		}
 	}
 
 	elemLenASN1 := marshalASN1Length(uint64(elemLen))
@@ -1404,6 +1438,10 @@ func rsaAlg(pub *rsa.PublicKey) (byte, error) {
 		return algRSA1024, nil
 	case 2048:
 		return algRSA2048, nil
+	case 3072:
+		return algRSA3072, nil
+	case 4096:
+		return algRSA4096, nil
 	default:
 		return 0, fmt.Errorf("unsupported rsa key size: %d", size)
 	}
