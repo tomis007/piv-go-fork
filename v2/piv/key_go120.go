@@ -20,7 +20,6 @@ package piv
 import (
 	"crypto"
 	"crypto/ecdh"
-	"errors"
 	"fmt"
 )
 
@@ -46,7 +45,7 @@ func (k *X25519PrivateKey) SharedKey(peer *ecdh.PublicKey) ([]byte, error) {
 	})
 }
 
-func (yk *YubiKey) privateKey(slot Slot, public crypto.PublicKey, auth KeyAuth, pp PINPolicy) (crypto.PrivateKey, error) {
+func (yk *YubiKey) tryX25519PrivateKey(slot Slot, public crypto.PublicKey, auth KeyAuth, pp PINPolicy) (crypto.PrivateKey, error) {
 	switch pub := public.(type) {
 	case *ecdh.PublicKey:
 		if crv := pub.Curve(); crv != ecdh.X25519() {
@@ -58,18 +57,18 @@ func (yk *YubiKey) privateKey(slot Slot, public crypto.PublicKey, auth KeyAuth, 
 	}
 }
 
-func (yk *YubiKey) setPrivateKeyInsecure(private crypto.PrivateKey) ([][]byte, byte, int, error) {
+func (yk *YubiKey) tryX22519PrivateKeyInsecure(private crypto.PrivateKey) ([][]byte, byte, int, error) {
 	switch priv := private.(type) {
 	case *ecdh.PrivateKey:
-		if priv.Curve() != ecdh.X25519() {
-			return nil, 0, 0, errors.New("unsupported private key type")
+		if crv := priv.Curve(); crv != ecdh.X25519() {
+			return nil, 0, 0, fmt.Errorf("unsupported ecdh curve: %v", crv)
 		}
 		// seed
 		params := make([][]byte, 0)
 		params = append(params, priv.Bytes())
 		return params, 0x08, 32, nil
 	default:
-		return nil, 0, 0, errors.New("unsupported private key type")
+		return nil, 0, 0, fmt.Errorf("unsupported private key type: %T", private)
 	}
 }
 

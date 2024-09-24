@@ -29,7 +29,7 @@ import (
 func TestYubiKeyX25519ImportKey(t *testing.T) {
 	importKey, err := ecdh.X25519().GenerateKey(rand.Reader)
 	if err != nil {
-		t.Fatalf("error geneating X25519 key: %v", err)
+		t.Fatalf("error generating X25519 key: %v", err)
 	}
 
 	yk, close := newTestYubiKey(t)

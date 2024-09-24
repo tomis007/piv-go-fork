@@ -1007,7 +1007,8 @@ func (yk *YubiKey) PrivateKey(slot Slot, public crypto.PublicKey, auth KeyAuth) 
 	case *rsa.PublicKey:
 		return &keyRSA{yk, slot, pub, auth, pp}, nil
 	default:
-		return yk.privateKey(slot, public, auth, pp)
+		// Add support for X25519 keys using build tags
+		return yk.tryX25519PrivateKey(slot, public, auth, pp)
 	}
 }
 
@@ -1087,9 +1088,9 @@ func (yk *YubiKey) SetPrivateKeyInsecure(key []byte, slot Slot, private crypto.P
 		copy(privateKey, priv[:32])
 		params = append(params, privateKey)
 	default:
-		// Add support for ecdh.PrivateKey using build tags
+		// Add support for X25519 keys using build tags
 		var err error
-		params, paramTag, elemLen, err = yk.setPrivateKeyInsecure(private)
+		params, paramTag, elemLen, err = yk.tryX22519PrivateKeyInsecure(private)
 		if err != nil {
 			return err
 		}

@@ -23,12 +23,12 @@ import (
 	"fmt"
 )
 
-func (yk *YubiKey) privateKey(slot Slot, public crypto.PublicKey, auth KeyAuth, pp PINPolicy) (crypto.PrivateKey, error) {
+func (yk *YubiKey) tryX25519PrivateKey(slot Slot, public crypto.PublicKey, auth KeyAuth, pp PINPolicy) (crypto.PrivateKey, error) {
 	return nil, fmt.Errorf("unsupported public key type: %T", public)
 }
 
-func (yk *YubiKey) setPrivateKeyInsecure(private crypto.PrivateKey) ([][]byte, byte, int, error) {
-	return nil, 0, 0, errors.New("unsupported private key type")
+func (yk *YubiKey) tryX22519PrivateKeyInsecure(private crypto.PrivateKey) ([][]byte, byte, int, error) {
+	return nil, 0, 0, errors.New("unsupported private key type: %T", private)
 }
 
 func decodeX25519Public(b []byte) (crypto.PublicKey, error) {
