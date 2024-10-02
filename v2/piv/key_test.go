@@ -209,6 +209,67 @@ func TestYubiKeyECDSASharedKey(t *testing.T) {
 	})
 }
 
+func TestYubiKeyX25519ECDH(t *testing.T) {
+	yk, close := newTestYubiKey(t)
+	defer close()
+
+	slot := SlotAuthentication
+
+	key := Key{
+		Algorithm:   AlgorithmX25519,
+		TouchPolicy: TouchPolicyNever,
+		PINPolicy:   PINPolicyNever,
+	}
+	pubKey, err := yk.GenerateKey(DefaultManagementKey, slot, key)
+	if err != nil {
+		t.Fatalf("generating key: %v", err)
+	}
+	pub, ok := pubKey.(*ecdh.PublicKey)
+	if !ok {
+		t.Fatalf("public key is not an ecdh key")
+	}
+	priv, err := yk.PrivateKey(slot, pub, KeyAuth{})
+	if err != nil {
+		t.Fatalf("getting private key: %v", err)
+	}
+	privX25519, ok := priv.(*X25519PrivateKey)
+	if !ok {
+		t.Fatalf("expected private key to be X25519 private key")
+	}
+
+	t.Run("good", func(t *testing.T) {
+		peer, err := ecdh.X25519().GenerateKey(rand.Reader)
+		if err != nil {
+			t.Fatalf("cannot generate key: %v", err)
+		}
+
+		secret1, err := privX25519.ECDH(peer.PublicKey())
+		if err != nil {
+			t.Fatalf("key agreement failed: %v", err)
+		}
+		secret2, err := peer.ECDH(pub)
+		if err != nil {
+			t.Fatalf("key agreement failed: %v", err)
+		}
+		if !bytes.Equal(secret1, secret2) {
+			t.Errorf("key agreement didn't match")
+		}
+	})
+
+	t.Run("bad", func(t *testing.T) {
+		t.Run("curve", func(t *testing.T) {
+			peer, err := ecdh.P256().GenerateKey(rand.Reader)
+			if err != nil {
+				t.Fatalf("cannot generate key: %v", err)
+			}
+			_, err = privX25519.ECDH(peer.PublicKey())
+			if !errors.Is(err, errMismatchingAlgorithms) {
+				t.Fatalf("unexpected error value: wanted errMismatchingAlgorithms: %v", err)
+			}
+		})
+	})
+}
+
 func TestYubiKeySignEd25519(t *testing.T) {
 	yk, close := newTestYubiKey(t)
 	defer close()
@@ -1346,6 +1407,13 @@ func TestKeyInfo(t *testing.T) {
 			false, version57,
 		},
 		{
+			"Generated x25517",
+			SlotAuthentication,
+			nil,
+			Key{AlgorithmEd25519, PINPolicyNever, TouchPolicyNever},
+			false, version57,
+		},
+		{
 			"Imported ec_256",
 			SlotAuthentication,
 			ephemeralKey(t, AlgorithmEC256),
@@ -1392,6 +1460,13 @@ func TestKeyInfo(t *testing.T) {
 			SlotAuthentication,
 			ephemeralKey(t, AlgorithmEd25519),
 			Key{AlgorithmEd25519, PINPolicyNever, TouchPolicyNever},
+			false, version57,
+		},
+		{
+			"Imported x25519",
+			SlotAuthentication,
+			ephemeralKey(t, AlgorithmX25519),
+			Key{AlgorithmX25519, PINPolicyNever, TouchPolicyNever},
 			false, version57,
 		},
 		{
@@ -1549,6 +1624,8 @@ func ephemeralKey(t *testing.T, alg Algorithm) privateKey {
 		key, err = rsa.GenerateKey(rand.Reader, 3072)
 	case AlgorithmRSA4096:
 		key, err = rsa.GenerateKey(rand.Reader, 4096)
+	case AlgorithmX25519:
+		key, err = ecdh.X25519().GenerateKey(rand.Reader)
 	default:
 		t.Fatalf("ephemeral key: unknown algorithm %d", alg)
 	}

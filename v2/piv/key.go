@@ -1006,9 +1006,13 @@ func (yk *YubiKey) PrivateKey(slot Slot, public crypto.PublicKey, auth KeyAuth) 
 		return &keyEd25519{yk, slot, pub, auth, pp}, nil
 	case *rsa.PublicKey:
 		return &keyRSA{yk, slot, pub, auth, pp}, nil
+	case *ecdh.PublicKey:
+		if crv := pub.Curve(); crv != ecdh.X25519() {
+			return nil, fmt.Errorf("unsupported ecdh curve: %v", crv)
+		}
+		return &X25519PrivateKey{yk, slot, pub, auth, pp}, nil
 	default:
-		// Add support for X25519 keys using build tags
-		return yk.tryX25519PrivateKey(slot, public, auth, pp)
+		return nil, fmt.Errorf("unsupported public key type: %T", public)
 	}
 }
 
@@ -1087,13 +1091,17 @@ func (yk *YubiKey) SetPrivateKeyInsecure(key []byte, slot Slot, private crypto.P
 		privateKey := make([]byte, elemLen)
 		copy(privateKey, priv[:32])
 		params = append(params, privateKey)
-	default:
-		// Add support for X25519 keys using build tags
-		var err error
-		params, paramTag, elemLen, err = yk.tryX22519PrivateKeyInsecure(private)
-		if err != nil {
-			return err
+	case *ecdh.PrivateKey:
+		if crv := priv.Curve(); crv != ecdh.X25519() {
+			return fmt.Errorf("unsupported ecdh curve: %v", crv)
 		}
+		paramTag = 0x08
+		elemLen = 32
+
+		// seed
+		params = append(params, priv.Bytes())
+	default:
+		return fmt.Errorf("unsupported private key type: %T", private)
 	}
 
 	elemLenASN1 := marshalASN1Length(uint64(elemLen))
@@ -1250,6 +1258,33 @@ func (k *ECDSAPrivateKey) ECDH(peer *ecdh.PublicKey) ([]byte, error) {
 	})
 }
 
+// X25519PrivateKey is a crypto.PrivateKey implementation for X25519 keys. It
+// implements the method ECDH to perform Diffie-Hellman key agreements.
+//
+// Keys returned by YubiKey.PrivateKey() may be type asserted to
+// *X25519PrivateKey, if the slot contains an X25519 key.
+type X25519PrivateKey struct {
+	yk   *YubiKey
+	slot Slot
+	pub  *ecdh.PublicKey
+	auth KeyAuth
+	pp   PINPolicy
+}
+
+func (k *X25519PrivateKey) Public() crypto.PublicKey {
+	return k.pub
+}
+
+// ECDH performs an ECDH exchange and returns the shared secret.
+//
+// Peer's public key must use the same algorithm as the key in this slot, or an
+// error will be returned.
+func (k *X25519PrivateKey) ECDH(peer *ecdh.PublicKey) ([]byte, error) {
+	return k.auth.do(k.yk, k.pp, func(tx *scTx) ([]byte, error) {
+		return ykECDHX25519(tx, k.slot, k.pub, peer)
+	})
+}
+
 type keyEd25519 struct {
 	yk   *YubiKey
 	slot Slot
@@ -1333,6 +1368,38 @@ func ykSignECDSA(tx *scTx, slot Slot, pub *ecdsa.PublicKey, digest []byte) ([]by
 		return nil, fmt.Errorf("unmarshal response signature: %v", err)
 	}
 	return rs, nil
+}
+
+func ykECDHX25519(tx *scTx, slot Slot, pub *ecdh.PublicKey, peer *ecdh.PublicKey) ([]byte, error) {
+	if crv := pub.Curve(); crv != ecdh.X25519() {
+		return nil, fmt.Errorf("unsupported ecdh curve: %v", crv)
+	}
+	if pub.Curve() != peer.Curve() {
+		return nil, errMismatchingAlgorithms
+	}
+	cmd := apdu{
+		instruction: insAuthenticate,
+		param1:      algX25519,
+		param2:      byte(slot.Key),
+		data: marshalASN1(0x7c,
+			append([]byte{0x82, 0x00},
+				marshalASN1(0x85, peer.Bytes())...)),
+	}
+	resp, err := tx.Transmit(cmd)
+	if err != nil {
+		return nil, fmt.Errorf("command failed: %w", err)
+	}
+
+	sig, _, err := unmarshalASN1(resp, 1, 0x1c) // 0x7c
+	if err != nil {
+		return nil, fmt.Errorf("unmarshal response: %v", err)
+	}
+	sharedSecret, _, err := unmarshalASN1(sig, 2, 0x02) // 0x82
+	if err != nil {
+		return nil, fmt.Errorf("unmarshal response signature: %v", err)
+	}
+
+	return sharedSecret, nil
 }
 
 // This function only works on SoloKeys prototypes and other PIV devices that choose
@@ -1430,6 +1497,16 @@ func decodeRSAPublic(b []byte) (*rsa.PublicKey, error) {
 		return nil, fmt.Errorf("returned exponent too large: %s", e.String())
 	}
 	return &rsa.PublicKey{N: &n, E: int(e.Int64())}, nil
+}
+
+func decodeX25519Public(b []byte) (*ecdh.PublicKey, error) {
+	// Adaptation of
+	// https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-73-4.pdf#page=95
+	p, _, err := unmarshalASN1(b, 2, 0x06)
+	if err != nil {
+		return nil, fmt.Errorf("unmarshal points: %v", err)
+	}
+	return ecdh.X25519().NewPublicKey(p)
 }
 
 func rsaAlg(pub *rsa.PublicKey) (byte, error) {
