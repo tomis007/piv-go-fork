@@ -440,8 +440,6 @@ type Algorithm int
 // Algorithms supported by this package. Note that not all cards will support
 // every algorithm.
 //
-// AlgorithmEd25519 is currently only implemented by SoloKeys.
-//
 // For algorithm discovery, see: https://github.com/ericchiang/piv-go/issues/1
 const (
 	AlgorithmEC256 Algorithm = iota + 1
@@ -1402,8 +1400,6 @@ func ykECDHX25519(tx *scTx, slot Slot, pub *ecdh.PublicKey, peer *ecdh.PublicKey
 	return sharedSecret, nil
 }
 
-// This function only works on SoloKeys prototypes and other PIV devices that choose
-// to implement Ed25519 signatures under alg 0x22.
 func skSignEd25519(tx *scTx, slot Slot, pub ed25519.PublicKey, digest []byte) ([]byte, error) {
 	// Adaptation of
 	// https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-73-4.pdf#page=118
