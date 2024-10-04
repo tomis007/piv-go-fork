@@ -1295,9 +1295,9 @@ func (k *keyEd25519) Public() crypto.PublicKey {
 	return k.pub
 }
 
-func (k *keyEd25519) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
+func (k *keyEd25519) Sign(rand io.Reader, message []byte, opts crypto.SignerOpts) ([]byte, error) {
 	return k.auth.do(k.yk, k.pp, func(tx *scTx) ([]byte, error) {
-		return ykSignEd25519(tx, k.slot, k.pub, digest)
+		return ykSignEd25519(tx, k.slot, k.pub, message, opts)
 	})
 }
 
@@ -1400,7 +1400,14 @@ func ykECDHX25519(tx *scTx, slot Slot, pub *ecdh.PublicKey, peer *ecdh.PublicKey
 	return sharedSecret, nil
 }
 
-func ykSignEd25519(tx *scTx, slot Slot, pub ed25519.PublicKey, digest []byte) ([]byte, error) {
+func ykSignEd25519(tx *scTx, slot Slot, pub ed25519.PublicKey, message []byte, opts crypto.SignerOpts) ([]byte, error) {
+	if opts.HashFunc() != crypto.Hash(0) {
+		return nil, fmt.Errorf("ed25519ph not supported")
+	}
+	if ed25519opts, ok := opts.(*ed25519.Options); ok && ed25519opts.Context != "" {
+		return nil, fmt.Errorf("ed25519ctx not supported")
+	}
+
 	// Adaptation of
 	// https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-73-4.pdf#page=118
 	cmd := apdu{
@@ -1409,7 +1416,7 @@ func ykSignEd25519(tx *scTx, slot Slot, pub ed25519.PublicKey, digest []byte) ([
 		param2:      byte(slot.Key),
 		data: marshalASN1(0x7c,
 			append([]byte{0x82, 0x00},
-				marshalASN1(0x81, digest)...)),
+				marshalASN1(0x81, message)...)),
 	}
 	resp, err := tx.Transmit(cmd)
 	if err != nil {

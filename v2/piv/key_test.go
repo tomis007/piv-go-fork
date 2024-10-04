@@ -24,6 +24,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/sha512"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
@@ -303,13 +304,29 @@ func TestYubiKeySignEd25519(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected private key to implement crypto.Signer")
 	}
-	sig, err := s.Sign(rand.Reader, data, crypto.Hash(0))
-	if err != nil {
-		t.Fatalf("signing failed: %v", err)
-	}
-	if !ed25519.Verify(pub, data, sig) {
-		t.Errorf("signature didn't match")
-	}
+
+	t.Run("good", func(t *testing.T) {
+		sig, err := s.Sign(rand.Reader, data, crypto.Hash(0))
+		if err != nil {
+			t.Fatalf("signing failed: %v", err)
+		}
+		if !ed25519.Verify(pub, data, sig) {
+			t.Errorf("signature didn't match")
+		}
+	})
+	t.Run("unsupported_ed25519ph", func(t *testing.T) {
+		digest := sha512.Sum512(data)
+		_, err := s.Sign(rand.Reader, digest[:], crypto.SHA512)
+		if err == nil {
+			t.Fatalf("expected signing with Ed25519ph to fail")
+		}
+	})
+	t.Run("unsupported_ed25519ctx", func(t *testing.T) {
+		_, err := s.Sign(rand.Reader, data, &ed25519.Options{Context: "test"})
+		if err == nil {
+			t.Fatalf("expected signing with Ed25519ctx to fail")
+		}
+	})
 }
 
 func TestPINPrompt(t *testing.T) {
