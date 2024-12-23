@@ -75,6 +75,8 @@ if err != nil {
 	// ...
 }
 // Use private key to sign or decrypt.
+// Type cast to crypto.Signer or crypto.Decryptor as needed
+// priv.(crypto.Signer).Sign(...
 ```
 
 ### PINs
